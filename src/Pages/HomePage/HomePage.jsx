@@ -2,12 +2,10 @@ import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Qs from "qs";
 import { io } from "socket.io-client";
-import "./HomePage.css";
-import { useAuth } from "../Context/UserAuthContext";
+import { useAuth } from "../../Context/UserAuthContext";
 
-import q from "../assets/light_svg.svg"
-import s from "../assets/svg.svg"
-import { Tilt } from "react-tilt";
+import q from "../HomePage/assets/light_svg.svg"
+import s from "../HomePage/assets/svg.svg"
 
 const HomePage = ({darkMode}) => {
 
