@@ -1,4 +1,3 @@
-import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { useLocation } from "react-router";
 // import MessageTemplate from "./components/MessageTemplate";
@@ -20,10 +19,19 @@ import UserStausBar from "./components/userStatusBar";
 import UserList from "./components/userList";
 import ChatUI from "..//Chat Page/components/chatui/Chatui";
 
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import MessageTemplate from "../../Components/MessageTemplate";
+import LocationTemplate from "../../Components/LocationTemplate";
+import MobileMenu from "../../Components/MobileMenu";
+import ShareBox from "../../Components/ShareBox";
+import { FaMicrophone, FaShare } from "react-icons/fa";
+import MicroPhone from "../../Components/MicroPhone";
+
 const socket = io("wss://reactchat-production-f378.up.railway.app/", {
   transports: ["websocket"],
 });
 // const socket = io('ws://localhost:8080/', { transports: ['websocket'] });
+
 
 const ChatPage = ({ darkMode, setDarkMode }) => {
   const location = useLocation();
@@ -31,9 +39,22 @@ const ChatPage = ({ darkMode, setDarkMode }) => {
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState("");
   const [users, setUsers] = useState([]);
+  const [typingUsers, setTypingUsers] = useState([]);
   const messagesContainerRef = useRef(null);
+  const [hasError, setHasError] = useState(false);
   const [userNo, setUserNo] = useState(0);
+  const [isMicOpen, setMicOpen] = useState(false);
+
+  const [micHide, setMicHide] = useState(false);
+  const [showShareBox, setShowShareBox] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const [iamTyping, setIamTyping] = useState(false);
+  const typingTimeOut = useRef();
+  const [userTyping, setUserTyping] = useState({
+    isTyping: false,
+    data: "",
+  });
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen);
@@ -45,24 +66,6 @@ const ChatPage = ({ darkMode, setDarkMode }) => {
     ignoreQueryPrefix: true,
   });
 
-  socket.emit("join", { username, room }, (error) => {
-    if (error) {
-      // Display popup if the user is already in a room
-      // Swal.fire({
-      //   title: 'Already in Room',
-      //   text: 'You are already in a room. Redirecting to home page...',
-      //   icon: 'info',
-      //   showConfirmButton: false,
-      //   timer: 2000, // Adjust the timer as needed
-      //   willClose: () => {
-      //     navigate('/'); // Redirect to home page
-      //   }
-      // });
-      // console.log("new part")
-    } else {
-      toast.success(`${username} joined the room!`);
-    }
-  });
   // useEffect(() => {
   //   socket.on('disconnect', () => {
   //     console.log('Disconnected from the server');
@@ -75,6 +78,34 @@ const ChatPage = ({ darkMode, setDarkMode }) => {
   // }, []);
 
   useEffect(() => {
+    const localusername = localStorage.getItem("username");
+    const localroom = localStorage.getItem("room");
+
+    if (localusername !== username || localroom !== room) {
+      return navigate("/");
+    }
+    socket.emit("join", { username, room }, (data) => {
+      // if (!data.status) {
+      //   // Display popup if the user is already in a room
+      //   Swal.fire({
+      //     title: "Already in Room",
+      //     text: "You are already in a room. Redirecting to home page...",
+      //     icon: "info",
+      //     showConfirmButton: false,
+      //     timer: 2000, // Adjust the timer as needed
+      //     willClose: () => {
+      //       navigate("/"); // Redirect to home page
+      //     },
+      //   });
+      //   // console.log("new part")
+      // } else {
+      //   setHasError(false);
+      //   toast.success(`${username} joined the room!`);
+      // }
+      toast.success(`${username} joined the room!`);
+    });
+  }, []);
+  useEffect(() => {
     socket.on("message", (message) => {
       setMessages((prevMessages) => [
         ...prevMessages,
@@ -84,9 +115,9 @@ const ChatPage = ({ darkMode, setDarkMode }) => {
           createdAt: moment(message.createdAt).format("h:mm a"),
         },
       ]);
+      console.log(message)
       scrollToBottom();
-
-    }, [messages]);
+    });
 
     socket.on("locationMessage", (message) => {
       console.log(messages);
@@ -107,39 +138,50 @@ const ChatPage = ({ darkMode, setDarkMode }) => {
       console.log("my Users: ", users);
       console.log("room", room);
     });
-
+    socket.on('event', (text) =>{
+      console.log("Hello");
+      console.log(text);
+    })
     return () => {
       socket.off("message");
       socket.off("locationMessage");
       socket.off("roomData");
     };
-  }, [messages]);
 
-  useEffect(()=>{
-    socket.on("event", (event) =>{
-      console.log(event.message);
-      console.log("hello");
-    })
-  }, [])
+  }, []);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     const message = e.target.elements.message.value;
+    if (message.trim() === "") {
+      return;
+    }
     socket.emit("sendMessage", message, (error) => {
       if (error) {
         console.log(error);
       } else {
         setInputMessage("");
+        setTypingUsers([]);
         console.log("Message delivered!");
       }
     });
   };
 
-  const handleTyping = () => {
-    const message = inputMessage.trim();
-    if (message) {
-      socket.emit("typing");
-    } else return;
+  const handleTyping = (e) => {
+    setInputMessage(e.target.value);
+    const message = e.target.value.trim();
+
+    if (!iamTyping) {
+      socket.emit("START_TYPING");
+      setIamTyping(true);
+    }
+
+    if (typingTimeOut.current) clearTimeout(typingTimeOut.current);
+
+    typingTimeOut.current = setTimeout(() => {
+      socket.emit("STOP_TYPING");
+      setIamTyping(false);
+    }, [500]);
   };
 
   const handleSendLocation = () => {
@@ -172,12 +214,39 @@ const ChatPage = ({ darkMode, setDarkMode }) => {
     scrollToBottom();
   }, [messages]);
 
-  window.onbeforeunload = function () {
-    return () => {
-      "Do you really want to leave?";
-      navigate("/");
+  useEffect(() => {
+    const handleTypingStart = (data) => {
+      setUserTyping({
+        ...userTyping,
+        isTyping: true,
+        data,
+      });
     };
-  };
+
+    const handleTypingStop = (data) => {
+      // console.log("STOP TYPING>>>", data);
+      setUserTyping({
+        ...userTyping,
+        isTyping: false,
+        data: "",
+      });
+    };
+
+    // Add event listeners when component mounts
+    socket?.on("USER_TYPING_START", handleTypingStart);
+    socket?.on("STOP_USER_TYPING", handleTypingStop);
+
+    // Clean up event listeners when component unmounts
+    return () => {
+      socket?.off("USER_TYPING_START", handleTypingStart);
+      socket?.off("STOP_USER_TYPING", handleTypingStop);
+    };
+  }, []);
+
+  // window.onbeforeunload = function () {
+  //   // This string won't actually be shown in modern browsers, but returning it triggers the confirmation dialog
+  //   return "Do you really want to leave?";
+  // };
 
   function handleDisconnectConfirmation() {
     Swal.fire({
@@ -190,6 +259,8 @@ const ChatPage = ({ darkMode, setDarkMode }) => {
     }).then((result) => {
       if (result.isConfirmed) {
         if (socket) {
+          localStorage.clear("username");
+          localStorage.clear("room");
           socket.disconnect(); // Disconnect the socket connection
           console.log("Disconnected from the chat server!");
           window.location.href = "/";
@@ -200,90 +271,92 @@ const ChatPage = ({ darkMode, setDarkMode }) => {
     });
   }
 
-  window.onpopstate = function () {
-    console.log("hello");
+  const startListening = () => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setMicHide(true);
+      return;
+    }
+    const recognition = new SpeechRecognition();
 
-    console.log("new data");
+    recognition.onstart = () => {
+      console.log("Speech recognition service has started");
+      setMicOpen(true);
+    };
+
+    recognition.onaudioend = () => {
+      console.log("Audio capturing ended");
+      setMicOpen(false);
+    };
+
+    recognition.onresult = (event) => {
+      const currentTranscript = event.results[0][0].transcript;
+      console.log(currentTranscript);
+      setMicOpen(false);
+      setInputMessage((prev) => prev + currentTranscript);
+    };
+
+    recognition.start();
   };
 
   return (
-    <div className="flex chat-ui-container p-10 flex-row gap-5 w-full justify-center">
+    <div className="flex chat-ui-container p-10 flex-row gap-5 w-full justify-center h-full">
       <div className="left-container flex flex-col gap-5 width 5/12">
         <RoomInfo room={room} userNo={userNo}></RoomInfo>
         <UserList users={users}></UserList>
       </div>
-      <div className="right-container w-9/12 flex flex-col gap-5">
+      <div className="right-container w-9/12 flex flex-col gap-5 h-full">
         <UserStausBar
           darkMode={darkMode}
           setDarkMode={setDarkMode}
           username={username}
           handleDisconnectConfirmation={handleDisconnectConfirmation}
         ></UserStausBar>
-        <div className="chat-interface bg-darkChat p-5 rounded-lg p-10 w-full">
-          <ChatUI messages={messages} user={username}></ChatUI>
+        <div className="chat-interface bg-darkChat p-5 rounded-lg p-10 w-full max-h-[65vh] min-h-[65vh]">
+          <ChatUI className = "h-full" messages={messages} user={username}></ChatUI>
         </div>
-        <div className="send-bar">
-          <div className="compose">
+        <div className="send-bar bg-darkChat rounded-lg p-2 px-8 w-full">
+          <div className="compose p-0 m-0 grow w-full">
             <form
               id="message-form"
+              className="flex items-center justify-center items-center"
               onSubmit={handleSubmit}
-              onChange={handleTyping}
             >
               <input
                 name="message"
                 placeholder="Message"
-                className="rounded-lg"
+                className="rounded-lg m-0 outline-none bg-darkChat border-0 w-9/12 text-white"
                 value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
+                onChange={handleTyping}
                 required
               />
-
-              <button
-                type="submit"
-                className="focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 cursor-pointer rounded-md bg-brand text-[#fff] bg-[#6674cc] border-brand font-rubik xl:text-lg border xl:px-6 lg:px-6 md:px-6 sm:px-6 h-12 py-2 flex items-center gap-3 text-lg lg:h-[4rem]"
-              >
-                Send
-                <svg
-                  stroke="currentColor"
-                  fill="none"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  height="1em"
-                  width="1em"
-                  xmlns="http://www.w3.org/2000/svg"
+              {!micHide && (
+                <FaMicrophone
+                  size={40}
+                  className={`m-2 mr-3 ${
+                    darkMode ? "text-white" : "text-pure-greys-600"
+                  }`}
+                  onClick={startListening}
+                />
+              )}
+              <div className="flex items-center gap-5">
+                <button
+                  type="submit"
+                  className=" flex items-center justify-center gap-4 bg-primaryOrange w-[100px] h-[50px] text-white px-10 py-4 rounded-lg "
                 >
-                  <desc></desc>
-                  <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
-                  <line x1="10" y1="14" x2="21" y2="3"></line>
-                  <path d="M21 3l-6.5 18a0.55 .55 0 0 1 -1 0l-3.5 -7l-7 -3.5a0.55 .55 0 0 1 0 -1l18 -6.5"></path>
-                </svg>
-              </button>
+                  Send
+                  <i className="material-icons">send</i>
+                </button>
+                <button
+                  id="send-location"
+                  onClick={handleSendLocation}
+                  className="bg-primaryOrange rounded-[50%] w-[50px] h-[50px] text-white hover:bg-[]"
+                >
+                  <i className="material-icons">location_on</i>
+                </button>
+              </div>
             </form>
-            <button
-              id="send-location"
-              onClick={handleSendLocation}
-              className="focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 cursor-pointer rounded-md bg-brand text-[#fff] bg-[#6674cc] border-brand font-rubik xl:text-lg border xl:px-6 lg:px-6 md:px-6 sm:px-6  h-12 py-2 flex items-center gap-3 text-lg lg:h-[4rem]"
-            >
-              Send location
-              <svg
-                stroke="currentColor"
-                fill="none"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                height="1em"
-                width="1em"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <desc></desc>
-                <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
-                <line x1="10" y1="14" x2="21" y2="3"></line>
-                <path d="M21 3l-6.5 18a0.55 .55 0 0 1 -1 0l-3.5 -7l-7 -3.5a0.55 .55 0 0 1 0 -1l18 -6.5"></path>
-              </svg>
-            </button>
           </div>
         </div>
       </div>

@@ -1,150 +1,81 @@
-const express = require("express");
-const path = require("path");
-const http = require("http");
-const socketio = require("socket.io");
-const cors = require("cors");
+const http = require('http');
+const socketio = require('socket.io');
+const express = require('express');
+const { addUser, removeUser, getUser, getUsersInRoom } = require('./path/to/your/user-utils');
 
 const app = express();
 const server = http.createServer(app);
-// const io=socketio(server);
-const Filter = require("bad-words");
+const io = socketio(server);
 
-const {
-  addUser,
-  removeUser,
-  getUser,
-  getUsersInRoom,
-} = require("./Utils/Users");
-const {
-  generateMessage,
-  generateLocationMessage,
-} = require("./Utils/Messages");
+io.on('connection', (socket) => {
+  console.log('New WebSocket connection');
 
-const PORT = process.env.PORT || 4000;
-
-// Use cors middleware with WebSocket support
-// app.use(cors({
-//     origin: 'http://localhost:3000', // Adjust this based on your React app's origin
-//     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-//     credentials: true,
-// }));
-
-app.use(cors());
-
-const io = socketio(server, {
-  cors: {
-    origin: "http://localhost:3000",
-    methods: ["GET", "POST"],
-    allowedHeaders: ["my-custom-header"],
-    credentials: true,
-  },
-});
-
-// Socket.IO CORS middleware
-io.use((socket, next) => {
-  // Set CORS headers for Socket.IO requests
-  socket.handshake.headers.origin = socket.handshake.headers.referer;
-  next();
-});
-
-io.on("connection", (socket) => {
-  console.log("New WebSocket Connection");
-
-  // method ,options,callback
-  socket.on("join", (options, callback) => {
-    const { status, error, user } = addUser({ id: socket.id, ...options });
+  // Handle user joining a room
+  socket.on('join', ({ username, room }, callback) => {
+    const { status, error, user } = addUser({ id: socket.id, username, room });
 
     if (!status) {
-      return callback({
-        status,
-        error,
-      });
+      return callback({ status, error });
     }
+
     socket.join(user.room);
 
-    socket.emit("message", generateMessage(`${user.username}`, "Welcome!"));
-    socket.broadcast
-      .to(user.room)
-      .emit(
-        "message",
-        generateMessage(`${user.username}`, `${user.username} has joined!`)
-      );
-    io.to(user.room).emit("roomData", {
+    // Welcome the current user
+    socket.emit('event', {
+      username: 'Admin',
+      text: 'Welcome!',
+      createdAt: new Date().getTime()
+    });
+
+    // Notify others in the room
+    socket.broadcast.to(user.room).emit('event', {
+      username: 'Admin',
+      text: `${user.username} has joined!`,
+      createdAt: new Date().getTime()
+    });
+
+    // Send room data
+    io.to(user.room).emit('roomData', {
       room: user.room,
-      users: getUsersInRoom(user.room),
+      users: getUsersInRoom(user.room)
     });
 
-    callback({
-      status,
-      error,
-    });
+    callback({ status: true });
   });
 
-  socket.on("sendMessage", (message, callback) => {
+  // Handle user sending a message
+  socket.on('sendMessage', (message, callback) => {
     const user = getUser(socket.id);
 
-    const filter = new Filter();
-    if (filter.isProfane(message)) {
-      console.warn("Profanity is not allowed!");
-      return;
+    if (user) {
+      io.to(user.room).emit('message', {
+        username: user.username,
+        text: message,
+        createdAt: new Date().getTime()
+      });
     }
-    io.to(user?.room).emit("message", generateMessage(user.username, message));
     callback();
   });
 
-  socket.on("START_TYPING", () => {
-    const user = getUser(socket.id);
-    if (user) {
-      // Check if user exists
-      socket.broadcast
-        .to(user?.room)
-        .emit("USER_TYPING_START", `${user?.username} is typing...`);
-    }
-  });
-  socket.on("STOP_TYPING", () => {
-    const user = getUser(socket.id);
-    if (user) {
-      // Check if user exists
-      socket.broadcast.to(user?.room).emit("STOP_USER_TYPING", ``);
-    }
-  });
-
-  socket.on("sendLocation", (coords, callback) => {
-    const user = getUser(socket.id);
-    io.to(user.room).emit(
-      "locationMessage",
-      generateLocationMessage(
-        user.username,
-        `https://google.com/maps?q=${coords.latitude},${coords.longitude}`
-      )
-    );
-    callback();
-  });
-
-  socket.on("disconnect", () => {
+  // Handle user disconnecting
+  socket.on('disconnect', () => {
     const user = removeUser(socket.id);
 
     if (user) {
-      io.to(user.room).emit(
-        "message",
-        generateMessage(`${user.username}`, `${user.username} has left!`)
-      );
-      io.to(user.room).emit("roomData", {
+      io.to(user.room).emit('message', {
+        username: 'Admin',
+        text: `${user.username} has left.`,
+        createdAt: new Date().getTime()
+      });
+
+      io.to(user.room).emit('roomData', {
         room: user.room,
-        users: getUsersInRoom(user.room),
+        users: getUsersInRoom(user.room)
       });
     }
   });
 });
 
-// default route
-app.get("/", (req, res) => {
-  return res.json({
-    success: true,
-    message: "Your socket is up and running....",
-  });
-});
-
-server.listen(PORT, () => {
-  console.log(`Server is up on port ${PORT}!`);
+server.listen(3000, () => {
+  console.log('Server is up on port 3000');
 });

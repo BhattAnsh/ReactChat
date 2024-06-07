@@ -1,4 +1,4 @@
-import React from "react";
+import {React, useState, useEffect} from "react";
 import UserMessage from "./Components/userMessage";
 import OthersMessage from "./Components/othersMessage";
 
@@ -6,7 +6,7 @@ function ChatUI({ messages, user }) {
   let edited_user = user.toLowerCase();
   return (
     <>
-      <div className="message-box flex flex-col overflow-scroll overflow-x-hidden">
+      <div className={"message-box flex flex-col overflow-y-scroll overflow-x-hidden max-h-full min-h-full p-5"}>
         {messages.map((msg) =>
           msg.username === edited_user ? (
             <div className="flex flex-row justify-end" key={msg.id}>

@@ -3,7 +3,7 @@ import React from "react";
 function UserList({users}) {
   return (
     <>
-      <div className="bg-darkChat p-5 rounded-lg h-50">
+      <div className="bg-darkChat p-5 rounded-lg h-50 h-full">
         <span className="text-xs font-thin text-primaryGrey">Users</span>
         {users.map((user, index) => (
           <li key={index} className="ml-2 text-white">
